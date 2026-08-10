@@ -40,6 +40,10 @@ type Route struct {
 }
 
 func Build(configPath string, metric *metrics.Metrics) (*Runtime, error) {
+	return build(configPath, metric, true)
+}
+
+func build(configPath string, metric *metrics.Metrics, openConfiguredLogs bool) (*Runtime, error) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return nil, err
@@ -59,7 +63,13 @@ func Build(configPath string, metric *metrics.Metrics) (*Runtime, error) {
 		return nil, err
 	}
 
-	logger, err := logging.New(cfg.ResolvePath(cfg.Logging.AccessFile), cfg.ResolvePath(cfg.Logging.SecurityFile))
+	accessLogPath := "-"
+	securityLogPath := "-"
+	if openConfiguredLogs {
+		accessLogPath = cfg.ResolvePath(cfg.Logging.AccessFile)
+		securityLogPath = cfg.ResolvePath(cfg.Logging.SecurityFile)
+	}
+	logger, err := logging.New(accessLogPath, securityLogPath)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +183,10 @@ func (r *Runtime) Close() error {
 
 func Validate(configPath string) (*ValidationResult, error) {
 	metric := &metrics.Metrics{}
-	runtime, err := Build(configPath, metric)
+	// Validation must never create production log directories. It still builds
+	// the complete rules, certificate store and reverse-proxy routes, but sends
+	// any incidental log output to the process streams instead of configured files.
+	runtime, err := build(configPath, metric, false)
 	if err != nil {
 		return nil, err
 	}
