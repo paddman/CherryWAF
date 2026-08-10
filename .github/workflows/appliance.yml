@@ -1,0 +1,86 @@
+name: Build Appliance
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Appliance version
+        required: true
+        default: 0.1.0
+      build_ova:
+        description: Also create VMware OVA
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # The runner needs Linux, KVM, QEMU, qemu-img, and enough disk space.
+    runs-on: [self-hosted, linux, x64, kvm]
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: false
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: 1.15.4
+      - name: Load appliance SSH key
+        env:
+          PRIVATE_KEY: ${{ secrets.CHERRYWAF_APPLIANCE_SSH_PRIVATE_KEY }}
+          PUBLIC_KEY: ${{ secrets.CHERRYWAF_APPLIANCE_SSH_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_KEY"
+          test -n "$PUBLIC_KEY"
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$PRIVATE_KEY" > ~/.ssh/cherrywaf_appliance
+          printf '%s\n' "$PUBLIC_KEY" > ~/.ssh/cherrywaf_appliance.pub
+          chmod 0600 ~/.ssh/cherrywaf_appliance
+          chmod 0644 ~/.ssh/cherrywaf_appliance.pub
+      - name: Build binaries
+        run: make VERSION="$VERSION" release-linux-amd64
+      - name: Initialize and validate Packer
+        env:
+          ADMIN_PASSWORD_HASH: ${{ secrets.CHERRYWAF_APPLIANCE_PASSWORD_HASH }}
+        run: |
+          set -euo pipefail
+          test -n "$ADMIN_PASSWORD_HASH"
+          packer init appliance/packer/ubuntu-24.04.pkr.hcl
+          packer validate \
+            -var "appliance_version=$VERSION" \
+            -var "admin_password_hash=$ADMIN_PASSWORD_HASH" \
+            -var "ssh_private_key_file=$HOME/.ssh/cherrywaf_appliance" \
+            -var "ssh_public_key_file=$HOME/.ssh/cherrywaf_appliance.pub" \
+            appliance/packer/ubuntu-24.04.pkr.hcl
+      - name: Build QCOW2
+        env:
+          ADMIN_PASSWORD_HASH: ${{ secrets.CHERRYWAF_APPLIANCE_PASSWORD_HASH }}
+        run: |
+          packer build -force \
+            -var "appliance_version=$VERSION" \
+            -var "admin_password_hash=$ADMIN_PASSWORD_HASH" \
+            -var "ssh_private_key_file=$HOME/.ssh/cherrywaf_appliance" \
+            -var "ssh_public_key_file=$HOME/.ssh/cherrywaf_appliance.pub" \
+            appliance/packer/ubuntu-24.04.pkr.hcl
+      - name: Build OVA
+        if: ${{ inputs.build_ova }}
+        run: |
+          qcow2="$(find appliance/output-cherrywaf -maxdepth 1 -name '*.qcow2' -print -quit)"
+          test -n "$qcow2"
+          ./appliance/scripts/export-ova.sh "$qcow2" "appliance/output-cherrywaf/CherryWAF-${VERSION}.ova"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CherryWAF-${{ inputs.version }}-appliance
+          path: |
+            appliance/output-cherrywaf/*.qcow2
+            appliance/output-cherrywaf/*.ova
+            appliance/output-cherrywaf/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
