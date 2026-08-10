@@ -1,0 +1,34 @@
+# Build output
+dist/
+var/
+coverage.out
+*.test
+
+# Packer / appliance output
+.packer.d/
+packer_cache/
+appliance/output-*/
+appliance/packer/*.pkrvars.hcl
+!appliance/packer/variables.pkrvars.hcl.example
+*.qcow2
+*.raw
+*.vmdk
+*.ova
+
+# Secrets and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.env
+!deployments/systemd/cherrywaf.env.example
+id_*
+!*.pub.example
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

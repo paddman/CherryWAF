@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "http": {
+    "enabled": true,
+    "listen": ":8080",
+    "redirect_to_https": true
+  },
+  "https": {
+    "enabled": true,
+    "listen": ":8443",
+    "min_tls_version": "1.2"
+  },
+  "admin": {
+    "enabled": true,
+    "listen": "127.0.0.1:9090",
+    "token_env": "CHERRYWAF_ADMIN_TOKEN",
+    "allow_public": false
+  },
+  "security": {
+    "mode": "blocking",
+    "block_threshold": 10,
+    "max_body_bytes": 1048576,
+    "max_header_bytes": 1048576,
+    "trusted_proxies": [],
+    "forwarded_for_header": "X-Forwarded-For",
+    "rate_limit": {
+      "enabled": true,
+      "requests_per_second": 50,
+      "burst": 100,
+      "entry_ttl_seconds": 600
+    }
+  },
+  "rules": {
+    "builtins": true,
+    "files": []
+  },
+  "logging": {
+    "access_file": "-",
+    "security_file": "-"
+  },
+  "virtual_hosts": [
+    {
+      "name": "docker-demo",
+      "enabled": true,
+      "domains": [
+        "app.example.test"
+      ],
+      "upstream": "http://origin:8080",
+      "preserve_host": true,
+      "frontend_tls": {
+        "certificate_file": "/etc/cherrywaf/certs/app.example.test/fullchain.pem",
+        "private_key_file": "/etc/cherrywaf/certs/app.example.test/privkey.pem"
+      },
+      "origin_tls": {
+        "server_name": "",
+        "ca_file": "",
+        "insecure_skip_verify": false
+      },
+      "response_headers": {
+        "X-Content-Type-Options": "nosniff"
+      }
+    }
+  ]
+}

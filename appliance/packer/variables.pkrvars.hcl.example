@@ -1,0 +1,14 @@
+# Copy to variables.pkrvars.hcl. This file is gitignored because it contains
+# the appliance administrator password hash and local SSH key paths.
+
+appliance_version    = "0.1.0"
+admin_username       = "cherryadmin"
+admin_password_hash  = "$6$REPLACE_WITH_OPENSSL_PASSWD_OUTPUT"
+ssh_private_key_file = "/home/you/.ssh/cherrywaf_packer"
+ssh_public_key_file  = "/home/you/.ssh/cherrywaf_packer.pub"
+
+cpus       = 2
+memory_mb  = 2048
+disk_size  = "20G"
+accelerator = "kvm"
+headless    = true

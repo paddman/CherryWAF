@@ -1,0 +1,67 @@
+services:
+  cert-init:
+    image: alpine:3.22
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        apk add --no-cache openssl >/dev/null
+        mkdir -p /certs/app.example.test
+        if [ ! -s /certs/app.example.test/fullchain.pem ] || [ ! -s /certs/app.example.test/privkey.pem ]; then
+          openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
+            -subj '/CN=app.example.test' \
+            -addext 'subjectAltName=DNS:app.example.test' \
+            -keyout /certs/app.example.test/privkey.pem \
+            -out /certs/app.example.test/fullchain.pem
+        fi
+        chown -R 65532:65532 /certs
+        chmod 0750 /certs /certs/app.example.test
+        chmod 0644 /certs/app.example.test/fullchain.pem
+        chmod 0600 /certs/app.example.test/privkey.pem
+    volumes:
+      - cherrywaf-certs:/certs
+    restart: "no"
+
+  origin:
+    image: nginx:1.28-alpine
+    volumes:
+      - ./deployments/docker/nginx.conf:/etc/nginx/nginx.conf:ro
+    expose:
+      - "8080"
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  cherrywaf:
+    build:
+      context: .
+      dockerfile: deployments/docker/Dockerfile
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
+      origin:
+        condition: service_started
+    environment:
+      CHERRYWAF_ADMIN_TOKEN: docker-demo-change-me
+    volumes:
+      - ./configs/cherrywaf.docker.json:/etc/cherrywaf/cherrywaf.json:ro
+      - cherrywaf-certs:/etc/cherrywaf/certs:ro
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  cherrywaf-certs:

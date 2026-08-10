@@ -1,0 +1,8 @@
+.git
+.github
+/mnt
+/dist
+/var
+*.qcow2
+*.ova
+*.iso

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "CWAF-CUSTOM-0001",
+      "name": "Block private administration path",
+      "description": "Example policy blocking a path that must not be public.",
+      "enabled": true,
+      "targets": [
+        "path"
+      ],
+      "pattern": "(?i)^/internal/admin(?:/|$)",
+      "score": 0,
+      "action": "block",
+      "severity": "high"
+    },
+    {
+      "id": "CWAF-CUSTOM-0002",
+      "name": "Log automation header",
+      "description": "Example detection-only rule for an internal automation marker.",
+      "enabled": true,
+      "targets": [
+        "headers"
+      ],
+      "pattern": "(?i)x-automation-client:.*legacy-bot",
+      "score": 1,
+      "action": "log",
+      "severity": "low"
+    }
+  ]
+}
