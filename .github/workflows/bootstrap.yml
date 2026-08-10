@@ -1,0 +1,75 @@
+name: Bootstrap CherryWAF
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".bootstrap/**"
+      - ".github/workflows/bootstrap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cherrywaf-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: Reconstruct reviewed source tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify and unpack source payload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          parts=(.bootstrap/part-*.b64)
+          if (( ${#parts[@]} != 9 )); then
+            echo "Expected 9 payload parts, found ${#parts[@]}" >&2
+            exit 1
+          fi
+
+          cat "${parts[@]}" | base64 --decode > /tmp/cherrywaf-repo.tar.gz
+          echo "575322465a930dab9d5b19b36f78a35f456063232c3ade6673b1e6f8fa07b71f  /tmp/cherrywaf-repo.tar.gz" | sha256sum --check --strict
+
+          mkdir -p /tmp/cherrywaf-source
+          tar -tzf /tmp/cherrywaf-repo.tar.gz | while IFS= read -r entry; do
+            case "$entry" in
+              /*|../*|*/../*|*/..)
+                echo "Unsafe archive path: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done
+          tar -xzf /tmp/cherrywaf-repo.tar.gz -C /tmp/cherrywaf-source
+
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+          cp -a /tmp/cherrywaf-source/. .
+
+      - name: Commit reconstructed repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git diff --cached --check
+
+          if git diff --cached --quiet; then
+            echo "Repository already matches the reviewed source tree."
+            exit 0
+          fi
+
+          git commit -m "feat: bootstrap CherryWAF v0.1 appliance baseline"
+          git push origin HEAD:main
