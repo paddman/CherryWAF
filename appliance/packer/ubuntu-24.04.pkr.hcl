@@ -113,21 +113,21 @@ source "qemu" "cherrywaf" {
   ]
 
   http_content = {
-    "/meta-data" = file("${path.root}/../http/meta-data")
-    "/user-data" = templatefile("${path.root}/../http/user-data.pkrtpl.hcl", {
-      admin_username     = var.admin_username
+    "/meta-data" = file(abspath("${path.root}/../http/meta-data"))
+    "/user-data" = templatefile(abspath("${path.root}/../http/user-data.pkrtpl.hcl"), {
+      admin_username      = var.admin_username
       admin_password_hash = var.admin_password_hash
-      ssh_public_key     = trimspace(file(var.ssh_public_key_file))
-      timezone           = var.timezone
+      ssh_public_key      = trimspace(file(var.ssh_public_key_file))
+      timezone            = var.timezone
     })
   }
 
-  communicator         = "ssh"
-  ssh_username         = var.admin_username
-  ssh_private_key_file = var.ssh_private_key_file
-  ssh_timeout          = "45m"
+  communicator           = "ssh"
+  ssh_username           = var.admin_username
+  ssh_private_key_file   = var.ssh_private_key_file
+  ssh_timeout            = "45m"
   pause_before_connecting = "10s"
-  shutdown_command     = "sudo /usr/local/sbin/cherrywaf-image-seal"
+  shutdown_command       = "sudo /usr/local/sbin/cherrywaf-image-seal"
 }
 
 build {
@@ -172,8 +172,6 @@ build {
     source      = "deployments/systemd/cherrywaf.logrotate"
     destination = "/tmp/cherrywaf-build/cherrywaf.logrotate"
   }
-
-
 
   provisioner "shell" {
     environment_vars = ["CHERRYWAF_APPLIANCE_VERSION=${var.appliance_version}"]
