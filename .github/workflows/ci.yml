@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: false
+      - name: Formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: go vet ./...
+      - name: Tests with race detector
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: Build
+        run: make build
+      - name: Validate examples
+        env:
+          CHERRYWAF_ADMIN_TOKEN: ci-only
+        run: |
+          ./dist/cherrywaf validate-config --config ./configs/cherrywaf.example.json
+          ./dist/cherrywaf validate-config --config ./configs/cherrywaf.appliance.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cherrywaf-linux-amd64
+          path: |
+            dist/cherrywaf
+            dist/cherrywafctl
+            coverage.out
+          if-no-files-found: error
+
+  container:
+    name: Container build and smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start demo
+        run: docker compose up --build -d
+      - name: Smoke test
+        run: ./scripts/smoke-test.sh
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop demo
+        if: always()
+        run: docker compose down -v
+
+  scripts:
+    name: Deployment script checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n scripts/*.sh appliance/scripts/*.sh
+      - name: Compose validation
+        run: docker compose config --quiet
+
+  appliance-template:
+    name: Appliance template validation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: false
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: 1.15.4
+      - name: Prepare validation inputs
+        run: |
+          make release-linux-amd64
+          ssh-keygen -q -t ed25519 -f /tmp/cherrywaf-packer -N ''
+      - name: Initialize QEMU plugin
+        run: packer init appliance/packer/ubuntu-24.04.pkr.hcl
+      - name: Validate Packer template
+        run: |
+          packer validate \
+            -var 'admin_password_hash=!' \
+            -var 'ssh_private_key_file=/tmp/cherrywaf-packer' \
+            -var 'ssh_public_key_file=/tmp/cherrywaf-packer.pub' \
+            appliance/packer/ubuntu-24.04.pkr.hcl
