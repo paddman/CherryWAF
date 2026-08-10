@@ -54,8 +54,16 @@ jobs:
           done
           tar -xzf /tmp/cherrywaf-repo.tar.gz -C /tmp/cherrywaf-source
 
+          # GITHUB_TOKEN may write source but cannot create/update workflow files.
+          # Preserve this one-time workflow and install the final workflows later
+          # through the repository integration that owns the required permission.
+          rm -rf /tmp/cherrywaf-source/.github/workflows
+          cp .github/workflows/bootstrap.yml /tmp/cherrywaf-bootstrap.yml
+
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
           cp -a /tmp/cherrywaf-source/. .
+          mkdir -p .github/workflows
+          cp /tmp/cherrywaf-bootstrap.yml .github/workflows/bootstrap.yml
 
       - name: Commit reconstructed repository
         shell: bash
