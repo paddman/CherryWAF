@@ -38,6 +38,7 @@ jobs:
         run: |
           ./dist/cherrywaf validate-config --config ./configs/cherrywaf.example.json
           ./dist/cherrywaf validate-config --config ./configs/cherrywaf.appliance.json
+          ./dist/cherrywaf validate-config --config ./configs/cherrywaf.adc.example.json
       - uses: actions/upload-artifact@v4
         with:
           name: cherrywaf-linux-amd64
