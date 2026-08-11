@@ -17,7 +17,7 @@
     "allow_public": false
   },
   "security": {
-    "mode": "blocking",
+    "mode": "detect",
     "block_threshold": 10,
     "max_body_bytes": 2097152,
     "max_header_bytes": 1048576,

@@ -1,4 +1,8 @@
-d /etc/cherrywaf 0750 root cherrywaf -
+d /etc/cherrywaf 0770 root cherrywaf -
 d /etc/cherrywaf/certs 0750 root cherrywaf -
 d /var/lib/cherrywaf 0750 cherrywaf cherrywaf -
+d /var/lib/cherrywaf/control 0750 cherrywaf cherrywaf -
+d /var/lib/cherrywaf/management 0750 root cherrywaf -
+d /var/lib/cherrywaf/network 0700 root root -
 d /var/log/cherrywaf 0750 cherrywaf adm -
+d /run/cherrywaf 0750 root cherrywaf -

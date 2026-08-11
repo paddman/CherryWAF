@@ -1,0 +1,13 @@
+[Unit]
+Description=CherryWAF privileged network configuration socket
+
+[Socket]
+ListenStream=/run/cherrywaf/netd.sock
+SocketUser=root
+SocketGroup=cherrywaf
+SocketMode=0660
+DirectoryMode=0750
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target

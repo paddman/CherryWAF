@@ -1,0 +1,14 @@
+[Unit]
+Description=Initialize unique CherryWAF appliance secrets and management TLS
+After=network-online.target
+Wants=network-online.target
+Before=cherrywaf.service cherrywaf-control.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cherrywaf-firstboot
+RemainAfterExit=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

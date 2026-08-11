@@ -6,7 +6,7 @@ on:
       version:
         description: Appliance version
         required: true
-        default: 0.1.0
+        default: 0.2.0
       build_ova:
         description: Also create VMware OVA
         required: true
@@ -52,14 +52,14 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$ADMIN_PASSWORD_HASH"
-          packer init appliance/packer/ubuntu-24.04.pkr.hcl
+          packer init appliance/packer/ubuntu-26.04.pkr.hcl
           packer validate \
             -var "appliance_version=$VERSION" \
             -var "admin_password_hash=$ADMIN_PASSWORD_HASH" \
             -var "ssh_private_key_file=$HOME/.ssh/cherrywaf_appliance" \
             -var "ssh_public_key_file=$HOME/.ssh/cherrywaf_appliance.pub" \
-            appliance/packer/ubuntu-24.04.pkr.hcl
-      - name: Build QCOW2
+            appliance/packer/ubuntu-26.04.pkr.hcl
+      - name: Build Ubuntu 26.04 QCOW2
         env:
           ADMIN_PASSWORD_HASH: ${{ secrets.CHERRYWAF_APPLIANCE_PASSWORD_HASH }}
         run: |
@@ -68,16 +68,16 @@ jobs:
             -var "admin_password_hash=$ADMIN_PASSWORD_HASH" \
             -var "ssh_private_key_file=$HOME/.ssh/cherrywaf_appliance" \
             -var "ssh_public_key_file=$HOME/.ssh/cherrywaf_appliance.pub" \
-            appliance/packer/ubuntu-24.04.pkr.hcl
+            appliance/packer/ubuntu-26.04.pkr.hcl
       - name: Build OVA
         if: ${{ inputs.build_ova }}
         run: |
           qcow2="$(find appliance/output-cherrywaf -maxdepth 1 -name '*.qcow2' -print -quit)"
           test -n "$qcow2"
-          ./appliance/scripts/export-ova.sh "$qcow2" "appliance/output-cherrywaf/CherryWAF-${VERSION}.ova"
+          ./appliance/scripts/export-ova.sh "$qcow2" "appliance/output-cherrywaf/CherryWAF-${VERSION}-ubuntu-26.04.ova"
       - uses: actions/upload-artifact@v4
         with:
-          name: CherryWAF-${{ inputs.version }}-appliance
+          name: CherryWAF-${{ inputs.version }}-ubuntu-26.04-appliance
           path: |
             appliance/output-cherrywaf/*.qcow2
             appliance/output-cherrywaf/*.ova

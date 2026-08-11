@@ -1,0 +1,50 @@
+[Unit]
+Description=CherryWAF web control center
+Documentation=https://github.com/paddman/CherryWAF
+After=network-online.target cherrywaf-firstboot.service cherrywaf.service cherrywaf-netd.socket
+Wants=network-online.target cherrywaf.service cherrywaf-netd.socket
+Requires=cherrywaf-firstboot.service
+
+[Service]
+Type=simple
+User=cherrywaf
+Group=cherrywaf
+ExecStart=/usr/local/bin/cherrywaf-control serve \
+  --listen :9443 \
+  --tls-cert /var/lib/cherrywaf/management/fullchain.pem \
+  --tls-key /var/lib/cherrywaf/management/privkey.pem \
+  --config /etc/cherrywaf/cherrywaf.json \
+  --state-dir /var/lib/cherrywaf/control \
+  --waf-admin-url http://127.0.0.1:9090 \
+  --waf-admin-env /etc/cherrywaf/cherrywaf.env \
+  --network-socket /run/cherrywaf/netd.sock
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=20s
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/cherrywaf/cherrywaf.env
+ReadWritePaths=/etc/cherrywaf /var/lib/cherrywaf
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

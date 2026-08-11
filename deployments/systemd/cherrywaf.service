@@ -1,14 +1,15 @@
 [Unit]
 Description=CherryWAF reverse proxy web application firewall
 Documentation=https://github.com/paddman/CherryWAF
-After=network-online.target
+After=network-online.target cherrywaf-firstboot.service
 Wants=network-online.target
+Requires=cherrywaf-firstboot.service
 
 [Service]
 Type=simple
 User=cherrywaf
 Group=cherrywaf
-EnvironmentFile=-/etc/cherrywaf/cherrywaf.env
+EnvironmentFile=/etc/cherrywaf/cherrywaf.env
 ExecStartPre=/usr/local/bin/cherrywaf validate-config --config /etc/cherrywaf/cherrywaf.json
 ExecStart=/usr/local/bin/cherrywaf serve --config /etc/cherrywaf/cherrywaf.json
 ExecReload=/bin/kill -HUP $MAINPID
