@@ -320,6 +320,7 @@ func (a *App) publicHandler(isHTTPS bool) http.Handler {
 				Timestamp: time.Now().UTC(), RequestID: requestID, ClientIP: clientIP,
 				VirtualHost: route.VirtualHost.Name, Host: r.Host, Method: r.Method, Path: r.URL.EscapedPath(),
 				Action: action, Score: decision.Score, Reason: decision.Reason, Matches: decision.Matches,
+				Geo: trustedRequestGeo(r, runtime.TrustedProxies),
 			})
 		}
 		if decision.Blocked {
@@ -365,6 +366,7 @@ func (a *App) adminHandler() http.Handler {
 			"uptime_seconds": int64(time.Since(a.startedAt).Seconds()),
 			"loaded_at":      runtime.LoadedAt, "mode": runtime.Engine.Mode(), "rule_count": runtime.Engine.RuleCount(),
 			"domains": runtime.Config.DomainNames(), "certificates": runtime.CertificatesInfo(), "metrics": a.metrics.Snapshot(),
+			"recent_security_events": recentSecurityEvents(runtime, 200),
 		})
 	})
 	mux.HandleFunc("POST /api/v1/reload", func(w http.ResponseWriter, r *http.Request) {
@@ -435,6 +437,7 @@ func logSyntheticSecurity(runtime *core.Runtime, requestID, clientIP string, rou
 		Timestamp: time.Now().UTC(), RequestID: requestID, ClientIP: clientIP,
 		VirtualHost: route.VirtualHost.Name, Host: r.Host, Method: r.Method, Path: r.URL.EscapedPath(),
 		Action: action, Score: score, Reason: reason,
+		Geo: trustedRequestGeo(r, runtime.TrustedProxies),
 	})
 }
 

@@ -20,6 +20,10 @@ vet:
 
 webcheck:
 	node --check internal/control/web/app.js
+	node --check internal/control/web/threatmap-data.js
+	node --check internal/control/web/threatmap-core.js
+	node --check internal/control/web/threatmap-view.js
+	node --check internal/control/web/threatmap-live.js
 
 build:
 	mkdir -p dist
