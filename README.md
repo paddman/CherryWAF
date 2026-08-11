@@ -4,7 +4,7 @@ CherryWAF is a Go-based reverse-proxy web application firewall with an embedded 
 
 It terminates HTTP/HTTPS, selects certificates by SNI, inspects normalized requests, applies anomaly-scored rules, rate-limits abusive clients, and proxies accepted traffic to HTTP or verified HTTPS origins. The standalone **CherryWAF Control Center** manages applications, certificates, policy, custom rules, users, appliance networking, backups, and transactional rollback.
 
-> **Status:** v0.2 engineering baseline. CherryWAF is suitable for development, controlled testing, pilot deployments, and appliance prototyping. It is not yet a drop-in replacement for a mature OWASP CRS deployment or a completed enterprise WAF product.
+> **Status:** v0.3 engineering baseline. CherryWAF is suitable for development, controlled testing, pilot deployments, and appliance prototyping. It is not yet a drop-in replacement for a mature OWASP CRS deployment or a completed enterprise WAF product.
 
 ## Highlights
 
@@ -19,6 +19,10 @@ It terminates HTTP/HTTPS, selects certificates by SNI, inspects normalized reque
 - native SQLi, XSS, traversal, command-injection, SSTI, scanner, and sensitive-file detections
 - anomaly scoring with detect and blocking modes
 - local per-client token-bucket rate limiting
+- multi-origin server pools with round-robin, weighted, least-connections, source-IP, primary/backup, and random selection
+- active HTTP/TCP health checks, passive failure tracking, retry, persistence, and content-based pool routing
+- per-application WAF, rate-limit, access-list, bot, redirect, discard, and fail-open/fail-closed policies
+- global IP/CIDR reputation monitoring or blocking from inline entries and local feed files
 - trusted-proxy-aware client IP extraction
 - SNI/HTTP Host mismatch protection
 - JSON Lines access and security events
@@ -32,6 +36,7 @@ It terminates HTTP/HTTPS, selects certificates by SNI, inspects normalized reque
 - `admin`, `operator`, and read-only `viewer` roles
 - CSRF-protected sessions and hardened browser security headers
 - dashboard and protected-application editor
+- Server Pools, Virtual Services, and Threat Intelligence workspaces
 - frontend listener and origin TLS configuration
 - certificate upload, hostname validation, replacement, and usage protection
 - visual RE2 rule editor and synthetic request testing
@@ -162,7 +167,10 @@ Main screens:
 ```text
 Overview
 Applications
+Server Pools
+Virtual Services
 WAF Policy
+Threat Intelligence
 Rule Studio
 Certificates
 Network
@@ -279,7 +287,7 @@ Read [SECURITY.md](SECURITY.md) and [Threat Model](docs/THREAT_MODEL.md) before 
 - no distributed rate-limit or reputation state
 - no managed browser challenge or advanced bot engine
 - no TOTP/WebAuthn, OIDC, SAML, or directory integration
-- no multi-origin health-checked load balancing in the GUI
+- no generic L4 TCP/UDP virtual services, GSLB, DNS authority, LinkProof, or multi-node HA/config synchronization yet
 - no complete private-key disaster-recovery export
 - no independent security audit or production performance certification yet
 

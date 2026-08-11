@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/paddman/CherryWAF/internal/bot"
 	"github.com/paddman/CherryWAF/internal/certstore"
 	"github.com/paddman/CherryWAF/internal/config"
 	"github.com/paddman/CherryWAF/internal/logging"
@@ -16,6 +17,7 @@ import (
 	"github.com/paddman/CherryWAF/internal/netutil"
 	"github.com/paddman/CherryWAF/internal/proxy"
 	"github.com/paddman/CherryWAF/internal/ratelimit"
+	"github.com/paddman/CherryWAF/internal/reputation"
 	"github.com/paddman/CherryWAF/internal/waf"
 )
 
@@ -25,6 +27,7 @@ type Runtime struct {
 	Certificates   *certstore.Store
 	TrustedProxies *netutil.TrustedProxies
 	Limiter        *ratelimit.Limiter
+	Reputation     *reputation.Store
 	Logger         *logging.Logger
 	LoadedAt       time.Time
 
@@ -37,6 +40,21 @@ type Runtime struct {
 type Route struct {
 	VirtualHost config.VirtualHost
 	Backend     *proxy.Backend
+	Engine      *waf.Engine
+	Limiter     *ratelimit.Limiter
+	Bot         *bot.Engine
+	MaxBody     int64
+	WAFFailMode string
+	Access      *accessPolicy
+	OwnLimiter  bool
+}
+
+type RouteStatus struct {
+	VirtualHost string             `json:"virtual_host"`
+	Action      string             `json:"action"`
+	Domains     []string           `json:"domains"`
+	WAFMode     string             `json:"waf_mode"`
+	Pools       []proxy.PoolStatus `json:"pools,omitempty"`
 }
 
 func Build(configPath string, metric *metrics.Metrics) (*Runtime, error) {
@@ -62,6 +80,10 @@ func build(configPath string, metric *metrics.Metrics, openConfiguredLogs bool) 
 	if err != nil {
 		return nil, err
 	}
+	reputationStore, err := reputation.Load(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("load reputation data: %w", err)
+	}
 
 	accessLogPath := "-"
 	securityLogPath := "-"
@@ -81,7 +103,7 @@ func build(configPath string, metric *metrics.Metrics, openConfiguredLogs bool) 
 	}()
 
 	runtime := &Runtime{
-		Config: cfg, Engine: engine, TrustedProxies: trusted, Logger: logger,
+		Config: cfg, Engine: engine, TrustedProxies: trusted, Reputation: reputationStore, Logger: logger,
 		LoadedAt: time.Now().UTC(), exactRoutes: make(map[string]*Route), wildcardRoutes: make(map[string]*Route),
 	}
 	cleanupLogger = false
@@ -96,19 +118,31 @@ func build(configPath string, metric *metrics.Metrics, openConfiguredLogs bool) 
 	if cfg.HTTPS.Enabled {
 		store, err := certstore.Load(cfg, time.Now())
 		if err != nil {
-			runtime.Close()
+			_ = runtime.Close()
 			return nil, fmt.Errorf("load TLS certificates: %w", err)
 		}
 		runtime.Certificates = store
 	}
 
 	for _, vhost := range cfg.EnabledVirtualHosts() {
-		backend, err := proxy.New(vhost, cfg, metric)
+		routeEngine, limiter, ownLimiter, maxBody, failMode, access, botEngine, err := buildRouteSecurity(cfg, vhost, engine, runtime.Limiter)
 		if err != nil {
-			runtime.Close()
-			return nil, fmt.Errorf("virtual host %q: %w", vhost.Name, err)
+			_ = runtime.Close()
+			return nil, fmt.Errorf("virtual host %q security policy: %w", vhost.Name, err)
 		}
-		route := &Route{VirtualHost: vhost, Backend: backend}
+		route := &Route{
+			VirtualHost: vhost, Engine: routeEngine, Limiter: limiter, OwnLimiter: ownLimiter,
+			MaxBody: maxBody, WAFFailMode: failMode, Access: access, Bot: botEngine,
+		}
+		if vhost.Action == "group" {
+			backend, err := proxy.New(vhost, cfg, metric)
+			if err != nil {
+				route.Close()
+				_ = runtime.Close()
+				return nil, fmt.Errorf("virtual host %q: %w", vhost.Name, err)
+			}
+			route.Backend = backend
+		}
 		for _, domain := range vhost.Domains {
 			if strings.HasPrefix(domain, "*.") {
 				runtime.wildcardRoutes[strings.TrimPrefix(domain, "*.")] = route
@@ -156,6 +190,36 @@ func (r *Runtime) TLSVersion() uint16 {
 	return tls.VersionTLS12
 }
 
+func (r *Runtime) RouteStatuses() []RouteStatus {
+	if r == nil {
+		return nil
+	}
+	seen := make(map[*Route]struct{})
+	for _, route := range r.exactRoutes {
+		seen[route] = struct{}{}
+	}
+	for _, route := range r.wildcardRoutes {
+		seen[route] = struct{}{}
+	}
+	statuses := make([]RouteStatus, 0, len(seen))
+	for route := range seen {
+		mode := "disabled"
+		if route.Engine != nil {
+			mode = route.Engine.Mode()
+		}
+		status := RouteStatus{
+			VirtualHost: route.VirtualHost.Name, Action: route.VirtualHost.Action,
+			Domains: append([]string(nil), route.VirtualHost.Domains...), WAFMode: mode,
+		}
+		if route.Backend != nil {
+			status.Pools = route.Backend.Status()
+		}
+		statuses = append(statuses, status)
+	}
+	sort.Slice(statuses, func(i, j int) bool { return statuses[i].VirtualHost < statuses[j].VirtualHost })
+	return statuses
+}
+
 func (r *Runtime) Close() error {
 	if r == nil {
 		return nil
@@ -172,7 +236,7 @@ func (r *Runtime) Close() error {
 			seen[route] = struct{}{}
 		}
 		for route := range seen {
-			route.Backend.CloseIdleConnections()
+			route.Close()
 		}
 		if r.Logger != nil {
 			r.closeErr = r.Logger.Close()
@@ -181,11 +245,26 @@ func (r *Runtime) Close() error {
 	return r.closeErr
 }
 
+func (r *Route) Close() {
+	if r == nil {
+		return
+	}
+	if r.Backend != nil {
+		r.Backend.CloseIdleConnections()
+	}
+	if r.OwnLimiter && r.Limiter != nil {
+		r.Limiter.Close()
+	}
+	if r.Bot != nil {
+		r.Bot.Close()
+	}
+}
+
 func Validate(configPath string) (*ValidationResult, error) {
 	metric := &metrics.Metrics{}
 	// Validation must never create production log directories. It still builds
-	// the complete rules, certificate store and reverse-proxy routes, but sends
-	// any incidental log output to the process streams instead of configured files.
+	// the complete rules, certificates, pools and reverse-proxy routes, but sends
+	// incidental log output to process streams instead of configured files.
 	runtime, err := build(configPath, metric, false)
 	if err != nil {
 		return nil, err
@@ -194,15 +273,22 @@ func Validate(configPath string) (*ValidationResult, error) {
 	result := &ValidationResult{
 		Mode: runtime.Engine.Mode(), RuleCount: runtime.Engine.RuleCount(),
 		Domains: runtime.Config.DomainNames(), Certificates: runtime.CertificatesInfo(),
+		ServerPools: len(runtime.Config.ServerPools), Routes: len(runtime.RouteStatuses()),
+	}
+	if runtime.Reputation != nil {
+		result.ReputationEntries = runtime.Reputation.Count()
 	}
 	return result, nil
 }
 
 type ValidationResult struct {
-	Mode         string           `json:"mode"`
-	RuleCount    int              `json:"rule_count"`
-	Domains      []string         `json:"domains"`
-	Certificates []certstore.Info `json:"certificates,omitempty"`
+	Mode              string           `json:"mode"`
+	RuleCount         int              `json:"rule_count"`
+	Domains           []string         `json:"domains"`
+	Certificates      []certstore.Info `json:"certificates,omitempty"`
+	ServerPools       int              `json:"server_pools"`
+	Routes            int              `json:"routes"`
+	ReputationEntries int              `json:"reputation_entries"`
 }
 
 func (r *Runtime) CertificatesInfo() []certstore.Info {
