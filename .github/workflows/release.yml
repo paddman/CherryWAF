@@ -30,11 +30,15 @@ jobs:
           for arch in amd64 arm64; do
             dir="release/cherrywaf-${VERSION}-linux-${arch}"
             mkdir -p "$dir"
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
-              -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${build_date}" \
-              -o "$dir/cherrywaf" ./cmd/cherrywaf
+            for command in cherrywaf cherrywaf-control; do
+              CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+                -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${build_date}" \
+                -o "$dir/$command" "./cmd/$command"
+            done
             CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
               -ldflags="-s -w" -o "$dir/cherrywafctl" ./cmd/cherrywafctl
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+              -ldflags="-s -w" -o "$dir/cherrywaf-netd" ./cmd/cherrywaf-netd
             cp -r configs deployments/systemd README.md SECURITY.md "$dir/"
             tar -C release -czf "release/cherrywaf-${VERSION}-linux-${arch}.tar.gz" \
               "cherrywaf-${VERSION}-linux-${arch}"

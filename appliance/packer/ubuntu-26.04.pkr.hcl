@@ -10,17 +10,17 @@ packer {
 
 variable "appliance_version" {
   type    = string
-  default = "0.1.0-dev"
+  default = "0.2.0-dev"
 }
 
 variable "iso_url" {
   type    = string
-  default = "https://releases.ubuntu.com/24.04/ubuntu-24.04.4-live-server-amd64.iso"
+  default = "https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso"
 }
 
 variable "iso_checksum" {
   type    = string
-  default = "sha256:e907d92eeec9df64163a7e454cbc8d7755e8ddc7ed42f99dbc80c40f1a138433"
+  default = "sha256:dec49008a71f6098d0bcfc822021f4d042d5f2db279e4d75bdd981304f1ca5d9"
 }
 
 variable "admin_username" {
@@ -87,11 +87,21 @@ variable "cherrywafctl_binary" {
   default = "dist/linux-amd64/cherrywafctl"
 }
 
+variable "control_binary" {
+  type    = string
+  default = "dist/linux-amd64/cherrywaf-control"
+}
+
+variable "netd_binary" {
+  type    = string
+  default = "dist/linux-amd64/cherrywaf-netd"
+}
+
 source "qemu" "cherrywaf" {
   iso_url          = var.iso_url
   iso_checksum     = var.iso_checksum
   output_directory = var.output_directory
-  vm_name          = "CherryWAF-${var.appliance_version}-ubuntu-24.04-amd64.qcow2"
+  vm_name          = "CherryWAF-${var.appliance_version}-ubuntu-26.04-amd64.qcow2"
 
   format           = "qcow2"
   disk_size        = var.disk_size
@@ -149,6 +159,21 @@ build {
   }
 
   provisioner "file" {
+    source      = var.control_binary
+    destination = "/tmp/cherrywaf-build/cherrywaf-control"
+  }
+
+  provisioner "file" {
+    source      = var.netd_binary
+    destination = "/tmp/cherrywaf-build/cherrywaf-netd"
+  }
+
+  provisioner "file" {
+    source      = "appliance/scripts/firstboot.sh"
+    destination = "/tmp/cherrywaf-build/cherrywaf-firstboot"
+  }
+
+  provisioner "file" {
     source      = "configs/cherrywaf.appliance.json"
     destination = "/tmp/cherrywaf-build/cherrywaf.json"
   }
@@ -156,6 +181,26 @@ build {
   provisioner "file" {
     source      = "deployments/systemd/cherrywaf.service"
     destination = "/tmp/cherrywaf-build/cherrywaf.service"
+  }
+
+  provisioner "file" {
+    source      = "deployments/systemd/cherrywaf-control.service"
+    destination = "/tmp/cherrywaf-build/cherrywaf-control.service"
+  }
+
+  provisioner "file" {
+    source      = "deployments/systemd/cherrywaf-firstboot.service"
+    destination = "/tmp/cherrywaf-build/cherrywaf-firstboot.service"
+  }
+
+  provisioner "file" {
+    source      = "deployments/systemd/cherrywaf-netd.service"
+    destination = "/tmp/cherrywaf-build/cherrywaf-netd.service"
+  }
+
+  provisioner "file" {
+    source      = "deployments/systemd/cherrywaf-netd.socket"
+    destination = "/tmp/cherrywaf-build/cherrywaf-netd.socket"
   }
 
   provisioner "file" {

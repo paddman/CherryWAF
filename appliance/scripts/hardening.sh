@@ -5,7 +5,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get -y upgrade
 apt-get install -y --no-install-recommends \
-  auditd ca-certificates curl jq nftables openssl qemu-guest-agent unattended-upgrades
+  auditd ca-certificates curl iproute2 jq netplan.io nftables openssl qemu-guest-agent unattended-upgrades
 apt-get autoremove -y
 apt-get clean
 rm -rf /var/lib/apt/lists/*
@@ -40,7 +40,7 @@ PermitEmptyPasswords no
 X11Forwarding no
 AllowAgentForwarding no
 AllowTcpForwarding local
-PermitOpen 127.0.0.1:9090
+PermitOpen 127.0.0.1:9090 127.0.0.1:9443
 GatewayPorts no
 ClientAliveInterval 300
 ClientAliveCountMax 2
@@ -63,7 +63,7 @@ table inet cherrywaf_filter {
     ip6 nexthdr ipv6-icmp accept
     udp sport 67 udp dport 68 accept
     udp sport 547 udp dport 546 accept
-    tcp dport { 22, 80, 443 } ct state new accept
+    tcp dport { 22, 80, 443, 9443 } ct state new accept
   }
 
   chain forward {
@@ -87,12 +87,14 @@ Unattended-Upgrade::Allowed-Origins {
 Unattended-Upgrade::Automatic-Reboot "false";
 APT
 
-# Packer invokes this as its shutdown command. Sealing at shutdown avoids
-# breaking the active SSH communicator while still giving every clone unique
-# machine and SSH host identities on first boot.
+# Packer invokes this as its shutdown command. Remove all clone-specific state
+# so each VM creates unique host keys, WAF credentials, and management TLS.
 cat >/usr/local/sbin/cherrywaf-image-seal <<'SEAL'
 #!/usr/bin/env bash
 set -euo pipefail
+systemctl stop cherrywaf-control.service cherrywaf.service cherrywaf-netd.socket 2>/dev/null || true
+rm -f /etc/cherrywaf/cherrywaf.env
+rm -rf /var/lib/cherrywaf/management /var/lib/cherrywaf/control /var/lib/cherrywaf/network
 cloud-init clean --logs --seed || true
 truncate -s 0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id

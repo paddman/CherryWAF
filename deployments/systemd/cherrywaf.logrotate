@@ -8,3 +8,14 @@
     copytruncate
     create 0640 cherrywaf adm
 }
+
+/var/lib/cherrywaf/control/audit.jsonl {
+    daily
+    rotate 90
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0600 cherrywaf cherrywaf
+}

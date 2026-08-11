@@ -1,118 +1,138 @@
 # CherryWAF
 
-CherryWAF is a Go-based reverse-proxy web application firewall and virtual appliance project. It terminates HTTP/HTTPS, selects certificates by SNI, inspects normalized requests, applies anomaly-scored rules, rate-limits abusive clients, and proxies allowed traffic to HTTP or verified HTTPS origins.
+CherryWAF is a Go-based reverse-proxy web application firewall with an embedded browser management plane and a hardened Ubuntu Server virtual-appliance build.
 
-> **Status:** v0.1 engineering baseline. The repository is suitable for development, controlled testing, and appliance prototyping. It is not yet a drop-in replacement for a mature OWASP CRS deployment.
+It terminates HTTP/HTTPS, selects certificates by SNI, inspects normalized requests, applies anomaly-scored rules, rate-limits abusive clients, and proxies accepted traffic to HTTP or verified HTTPS origins. The standalone **CherryWAF Control Center** manages applications, certificates, policy, custom rules, users, appliance networking, backups, and transactional rollback.
 
-## Current capabilities
+> **Status:** v0.2 engineering baseline. CherryWAF is suitable for development, controlled testing, pilot deployments, and appliance prototyping. It is not yet a drop-in replacement for a mature OWASP CRS deployment or a completed enterprise WAF product.
+
+## Highlights
+
+### Data plane
 
 - HTTP and HTTPS reverse proxy
-- TLS 1.2/1.3 minimum policy
-- multiple virtual hosts on one listener
-- exact and one-label wildcard SNI certificates
-- certificate/private-key matching, hostname, lifetime, and permission validation
+- TLS 1.2/1.3 policy and SNI certificate selection
+- exact and one-label wildcard domains
 - frontend TLS termination and origin TLS re-encryption
-- custom origin SNI and private CA bundle
-- native detection rules for common SQLi, XSS, traversal, command injection, SSTI, scanners, and sensitive-file probes
-- multi-round URL/HTML normalization with bounded request-body inspection
-- blocking and detect-only modes with anomaly scoring
-- per-client token-bucket rate limiting
+- custom origin SNI and private CA bundles
+- bounded request-body inspection and multi-round normalization
+- native SQLi, XSS, traversal, command-injection, SSTI, scanner, and sensitive-file detections
+- anomaly scoring with detect and blocking modes
+- local per-client token-bucket rate limiting
 - trusted-proxy-aware client IP extraction
-- SNI/HTTP Host mismatch rejection to prevent cross-vhost domain fronting
-- direct origin connections that do not inherit process-wide proxy environment variables
-- JSON Lines access and security logs
-- Prometheus-format local metrics
-- authenticated loopback admin status and hot-reload API
-- `cherrywafctl` certificate and virtual-host management utility
-- rootless Docker demonstration
-- hardened systemd service
-- Packer build for an Ubuntu Server 24.04.4 LTS QCOW2 appliance
-- OVA export path for VMware-compatible imports
+- SNI/HTTP Host mismatch protection
+- JSON Lines access and security events
+- Prometheus-format metrics
+- authenticated loopback administration API and hot reload
+
+### Control Center
+
+- first-boot administrator claim using a console setup code
+- local login with salted PBKDF2 password hashes
+- `admin`, `operator`, and read-only `viewer` roles
+- CSRF-protected sessions and hardened browser security headers
+- dashboard and protected-application editor
+- frontend listener and origin TLS configuration
+- certificate upload, hostname validation, replacement, and usage protection
+- visual RE2 rule editor and synthetic request testing
+- WAF policy and rate-limit editor
+- Netplan configuration through a root helper with automatic timed rollback
+- automatic configuration revisions, manual ZIP backups, and restore
+- user management and JSONL audit trail
+- advanced raw JSON configuration editor
+
+### Appliance
+
+- Ubuntu Server 26.04 LTS amd64
+- QCOW2 target for Proxmox/KVM
+- VMware-compatible OVA export path
+- systemd sandboxing and non-root data/control services
+- nftables, auditd, qemu-guest-agent, and unattended security updates
+- unique WAF token, setup code, management TLS key, machine ID, and SSH host keys per cloned VM
 
 ## Architecture
 
 ```text
-Internet
-   │ HTTP / HTTPS
-   ▼
+Administrator browser
+        │ HTTPS :9443
+        ▼
 ┌──────────────────────────────────────┐
-│ CherryWAF                            │
-│  Listener and TLS termination       │
-│  Host/SNI virtual-host routing      │
-│  Framing and size guards            │
-│  Request normalization              │
-│  Native rule engine and scoring     │
-│  Per-client rate limiting           │
-│  JSON security events and metrics   │
-└──────────────────┬───────────────────┘
-                   │ HTTP or verified HTTPS
-                   ▼
-                Origin
+│ CherryWAF Control Center            │
+│ Login / RBAC / CSRF / Audit         │
+│ Apps / TLS / Policy / Rules         │
+│ Revisions / Backup / Network UI     │
+└──────────────┬───────────────────────┘
+               │ loopback API + Unix socket
+        ┌──────┴──────────┐
+        ▼                 ▼
+ WAF admin API       cherrywaf-netd
+ 127.0.0.1:9090      privileged fixed actions
+        │
+        ▼
+Internet ──HTTP/HTTPS──> CherryWAF data plane ──HTTP/verified HTTPS──> Origin
+                         :80 / :443
 ```
 
-The synchronous request path has no database or LLM dependency. External analytics, SIEM, and AI triage should consume security events asynchronously rather than becoming a fragile requirement for every request.
-
-See [Architecture](docs/ARCHITECTURE.md) and [Threat Model](docs/THREAT_MODEL.md).
+The synchronous request path has no GUI, database, network-helper, or LLM dependency. A Control Center failure does not stop the WAF data plane from serving its currently loaded configuration.
 
 ## Repository layout
 
 ```text
-cmd/cherrywaf/             WAF server
-cmd/cherrywafctl/          Local control utility
-internal/app/              Listeners, request lifecycle, reload and admin API
-internal/certstore/        Certificate validation and SNI store
-internal/config/           Strict JSON configuration
-internal/core/             Immutable runtime and virtual-host routing
-internal/proxy/            Reverse proxy and origin TLS
-internal/waf/              Normalization, rules and anomaly scoring
-configs/                   Example, Docker and appliance configurations
-rules/                     Custom rule examples
-deployments/docker/        Container image and demo origin
-deployments/systemd/       Hardened Linux service files
-appliance/                 Packer, autoinstall and appliance hardening
+cmd/cherrywaf/                 WAF data plane
+cmd/cherrywafctl/              Local certificate and virtual-host CLI
+cmd/cherrywaf-control/         Browser management server
+cmd/cherrywaf-netd/            Privileged fixed-function network helper
+internal/app/                  WAF listeners, request lifecycle, reload, admin API
+internal/certstore/            Certificate validation and SNI store
+internal/config/               Strict JSON configuration
+internal/control/              Authentication, RBAC, API, revisions, backup, embedded UI
+internal/core/                 Immutable WAF runtime and virtual-host routing
+internal/proxy/                Reverse proxy and origin TLS
+internal/waf/                  Normalization, rules, and anomaly scoring
+configs/                       Example, Docker, and appliance configurations
+rules/                         Custom rule examples
+deployments/systemd/           Hardened appliance services and socket units
+appliance/                     Ubuntu 26.04 Packer build and image hardening
+docs/                          Architecture, threat model, Control Center, appliance notes
 ```
 
-## Requirements
-
-- Go 1.26.5 for the release build
-- Docker with Compose for the container demonstration
-- Packer and QEMU/KVM only when building the virtual appliance
-
-The module has no third-party Go runtime dependencies.
-
 ## Build and test
+
+Requirements:
+
+- Go 1.26.5 for the pinned release toolchain
+- Node.js only for JavaScript syntax checking during development/CI
+- Docker with Compose for the container smoke test
+- Packer and QEMU/KVM only for virtual-appliance builds
 
 ```bash
 make fmt
 make vet
 make test
+make webcheck
 make build
 ```
 
-Validate the sample configuration:
+Generated binaries:
+
+```text
+dist/cherrywaf
+dist/cherrywafctl
+dist/cherrywaf-control
+dist/cherrywaf-netd
+```
+
+Validate a configuration:
 
 ```bash
 CHERRYWAF_ADMIN_TOKEN=development-only \
-  ./dist/cherrywaf validate-config --config ./configs/cherrywaf.example.json
+  ./dist/cherrywaf validate-config \
+  --config ./configs/cherrywaf.example.json
 ```
 
-Run a local origin on port 8081 and start CherryWAF:
+## Docker data-plane demonstration
 
-```bash
-python3 -m http.server 8081
-
-# In another terminal
-CHERRYWAF_ADMIN_TOKEN=development-only \
-  ./dist/cherrywaf serve --config ./configs/cherrywaf.example.json
-
-curl -H 'Host: app.example.com' http://127.0.0.1:8080/
-curl -i -H 'Host: app.example.com' \
-  'http://127.0.0.1:8080/?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E'
-```
-
-The second request should return HTTP 403 in blocking mode.
-
-## Docker demonstration
+The Compose project demonstrates the WAF data plane and a test origin. The appliance Control Center is intentionally not required for this smoke test.
 
 ```bash
 docker compose up --build -d
@@ -120,90 +140,63 @@ docker compose up --build -d
 docker compose logs -f cherrywaf
 ```
 
-The Compose project generates a short-lived development certificate for `app.example.test`, starts a demo origin, and exposes:
-
-| Endpoint | Purpose |
-|---|---|
-| `http://127.0.0.1:8080` | Redirect to HTTPS |
-| `https://127.0.0.1:8443` | CherryWAF demonstration listener |
-
-Direct test:
+Direct HTTPS test:
 
 ```bash
 curl --insecure --resolve app.example.test:8443:127.0.0.1 \
   https://app.example.test:8443/
 ```
 
-## Configuration
+## Control Center access
 
-CherryWAF uses strict JSON. Unknown fields fail validation rather than being silently ignored.
+On an appliance, open:
 
-```json
-{
-  "version": 1,
-  "http": {
-    "enabled": true,
-    "listen": ":80",
-    "redirect_to_https": true
-  },
-  "https": {
-    "enabled": true,
-    "listen": ":443",
-    "min_tls_version": "1.2"
-  },
-  "admin": {
-    "enabled": true,
-    "listen": "127.0.0.1:9090",
-    "token_env": "CHERRYWAF_ADMIN_TOKEN",
-    "allow_public": false
-  },
-  "security": {
-    "mode": "blocking",
-    "block_threshold": 10,
-    "max_body_bytes": 2097152,
-    "max_header_bytes": 1048576,
-    "trusted_proxies": ["10.0.0.0/8"],
-    "forwarded_for_header": "X-Forwarded-For",
-    "rate_limit": {
-      "enabled": true,
-      "requests_per_second": 100,
-      "burst": 250,
-      "entry_ttl_seconds": 600
-    }
-  },
-  "rules": {
-    "builtins": true,
-    "files": ["/etc/cherrywaf/rules/custom.json"]
-  },
-  "logging": {
-    "access_file": "/var/log/cherrywaf/access.jsonl",
-    "security_file": "/var/log/cherrywaf/security.jsonl"
-  },
-  "virtual_hosts": [
-    {
-      "name": "app",
-      "enabled": true,
-      "domains": ["app.example.com"],
-      "upstream": "https://10.10.10.20:443",
-      "preserve_host": true,
-      "frontend_tls": {
-        "certificate_file": "/etc/cherrywaf/certs/app.example.com/fullchain.pem",
-        "private_key_file": "/etc/cherrywaf/certs/app.example.com/privkey.pem"
-      },
-      "origin_tls": {
-        "server_name": "origin.internal.example.com",
-        "ca_file": "/etc/cherrywaf/ca/internal-ca.pem",
-        "insecure_skip_verify": false
-      },
-      "response_headers": {
-        "X-Content-Type-Options": "nosniff"
-      }
-    }
-  ]
-}
+```text
+https://APPLIANCE-IP:9443
 ```
 
-## Install and validate a certificate
+The console displays the one-time first-boot setup code. There is no embedded default GUI password.
+
+Main screens:
+
+```text
+Overview
+Applications
+WAF Policy
+Rule Studio
+Certificates
+Network
+Backup & Rollback
+Users & Roles
+Audit Log
+Raw Configuration
+```
+
+See [Control Center design and API](docs/CONTROL_CENTER.md).
+
+## Configuration transactions
+
+Configuration and GUI rule changes use a validate-before-apply workflow:
+
+```text
+Candidate input
+   ↓
+Strict parse and full validation
+   ↓
+Create safety revision
+   ↓
+Atomic write
+   ↓
+Hot reload WAF
+   ↓
+Success, restart-required, or automatic rollback
+```
+
+Listener-set changes may require an explicit `cherrywaf.service` restart. The Control Center remains available on port 9443 while only the data plane restarts.
+
+## Certificates
+
+The CLI remains available for local administration:
 
 ```bash
 sudo cherrywafctl cert validate \
@@ -219,47 +212,7 @@ sudo cherrywafctl cert install \
   --group cherrywaf
 ```
 
-Add or replace a virtual host:
-
-```bash
-sudo cherrywafctl vhost upsert \
-  --name app \
-  --domain app.example.com \
-  --upstream https://10.10.10.20:443 \
-  --origin-server-name origin.internal.example.com \
-  --cert /etc/cherrywaf/certs/app.example.com/fullchain.pem \
-  --key /etc/cherrywaf/certs/app.example.com/privkey.pem
-```
-
-If HTTPS was already running, reload without dropping the listeners:
-
-```bash
-sudo systemctl reload cherrywaf
-```
-
-Enabling HTTPS for the first time changes the listener set and requires:
-
-```bash
-sudo systemctl restart cherrywaf
-```
-
-## Admin and metrics endpoints
-
-The admin listener defaults to loopback only.
-
-```bash
-curl http://127.0.0.1:9090/healthz
-curl http://127.0.0.1:9090/readyz
-curl http://127.0.0.1:9090/metrics
-
-curl -H "Authorization: Bearer $CHERRYWAF_ADMIN_TOKEN" \
-  http://127.0.0.1:9090/api/v1/status
-
-curl -X POST -H "Authorization: Bearer $CHERRYWAF_ADMIN_TOKEN" \
-  http://127.0.0.1:9090/api/v1/reload
-```
-
-Do not expose this listener publicly merely because it has a token. Loopback, SSH forwarding, or a separately authenticated management network is the intended model.
+The Control Center can also install managed PEM certificate/key pairs and assign their paths to virtual hosts. Private-key bytes are never returned by its API.
 
 ## Custom rules
 
@@ -284,37 +237,62 @@ Rule files use versioned JSON:
 }
 ```
 
-Supported targets are `method`, `path`, `query`, `headers`, `cookies`, and `body`. Supported actions are `score`, `block`, and `log`. Go's RE2 regular-expression engine is used, so catastrophic backtracking constructs are not available.
+Supported targets are `method`, `path`, `query`, `headers`, `cookies`, and `body`. Supported actions are `score`, `block`, and `log`. Patterns use Go's RE2 engine.
 
-## Appliance
-
-The first appliance target is **Ubuntu Server 24.04.4 LTS Minimal with the GA kernel**. It creates a QCOW2 image for Proxmox/KVM, installs a hardened systemd service, enables nftables and unattended security updates, and includes an OVA conversion script.
+## Ubuntu 26.04 virtual appliance
 
 ```bash
 cp appliance/packer/variables.pkrvars.hcl.example \
    appliance/packer/variables.pkrvars.hcl
-# Fill the password hash and SSH key paths.
+
 make appliance
 ```
 
-See [Appliance build and deployment](appliance/README.md).
+Expected artifacts:
 
-## Security limitations in v0.1
+```text
+CherryWAF-VERSION-ubuntu-26.04-amd64.qcow2
+CherryWAF-VERSION-ubuntu-26.04.ova
+SHA256SUMS
+```
 
-The current native engine is intentionally small and auditable. It does not yet include OWASP CRS/SecLang compatibility, automatic ACME, distributed state, response-body inspection, managed bot challenges, file malware scanning, or a browser control plane. Deploy first in detect mode against representative traffic, tune false positives, and then enable blocking.
+The actual QCOW2/OVA build requires a Linux KVM/QEMU host. GitHub Actions includes a manually triggered workflow intended for a self-hosted runner labelled `self-hosted`, `linux`, `x64`, and `kvm`.
 
-See [SECURITY.md](SECURITY.md) before reporting exploitable behavior.
+See [Ubuntu 26.04 appliance notes](docs/APPLIANCE_UBUNTU_26_04.md) and [appliance build instructions](appliance/README.md).
+
+## Security boundaries
+
+- The WAF admin API remains loopback-only.
+- The Control Center runs as the unprivileged `cherrywaf` user.
+- Network and service restart operations are fixed endpoints exposed through a group-restricted Unix socket.
+- Network changes require explicit confirmation and automatically roll back when connectivity is lost.
+- Backups exclude certificate private keys, password hashes, session tokens, audit logs, and WAF admin tokens.
+- Deploy new policies in detect mode against representative traffic before enabling blocking.
+
+Read [SECURITY.md](SECURITY.md) and [Threat Model](docs/THREAT_MODEL.md) before exposing a pilot appliance.
+
+## Current limitations
+
+- no OWASP CRS/SecLang compatibility yet
+- no ACME/Let's Encrypt issuance or automatic renewal
+- no response-body inspection
+- no distributed rate-limit or reputation state
+- no managed browser challenge or advanced bot engine
+- no TOTP/WebAuthn, OIDC, SAML, or directory integration
+- no multi-origin health-checked load balancing in the GUI
+- no complete private-key disaster-recovery export
+- no independent security audit or production performance certification yet
 
 ## Roadmap
 
-1. OWASP CRS-compatible engine integration and rule exclusions
+1. OWASP CRS-compatible engine integration and granular exclusions
 2. structured JSON, XML, form, and multipart parameter inspection
-3. ACME issuance and automatic certificate renewal
-4. signed configuration bundles and clustered control plane
+3. ACME issuance and renewal with clustered certificate coordination
+4. application health checks and multi-origin load balancing
 5. Redis-backed distributed limits and reputation cache
 6. ClickHouse/SIEM event pipeline and asynchronous AI triage
-7. web management console, RBAC, audit trail, backup and restore
-8. benchmark suite for throughput, latency, bypasses, and false positives
+7. MFA, external identity providers, signed configuration bundles, and HA control-plane replication
+8. benchmark suites for throughput, latency, bypasses, and false positives
 
 ## License
 
