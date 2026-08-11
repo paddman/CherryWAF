@@ -15,7 +15,17 @@ func TestOriginTransportDoesNotInheritEnvironmentProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer backend.CloseIdleConnections()
-	if backend.transport.Proxy != nil {
-		t.Fatal("origin transport unexpectedly inherited environment proxy settings")
+
+	checked := 0
+	for _, pool := range backend.pools {
+		for _, member := range pool.members {
+			checked++
+			if member.transport.Proxy != nil {
+				t.Fatalf("origin member %q unexpectedly inherited environment proxy settings", member.config.ID)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("backend did not create an origin member transport")
 	}
 }

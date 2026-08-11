@@ -239,16 +239,19 @@ func (a *App) publicHandler(isHTTPS bool) http.Handler {
 		runtime := a.current.Load()
 		var route *core.Route
 		var clientIP = "unknown"
+		var selectedUpstream string
 		defer func() {
 			duration := time.Since(started)
 			a.metrics.RequestFinished(capture.status, duration)
 			if runtime == nil || runtime.Logger == nil {
 				return
 			}
-			virtualHost, upstream := "", ""
+			virtualHost, upstream := "", selectedUpstream
 			if route != nil {
 				virtualHost = route.VirtualHost.Name
-				upstream = route.Backend.Upstream()
+				if upstream == "" && route.Backend != nil {
+					upstream = route.Backend.Upstream()
+				}
 			}
 			_ = runtime.Logger.Access(logging.AccessEvent{
 				Timestamp: time.Now().UTC(), RequestID: requestID, ClientIP: clientIP,
@@ -279,38 +282,93 @@ func (a *App) publicHandler(isHTTPS bool) http.Handler {
 		forwarded := r.Header.Get(runtime.Config.Security.ForwardedForHeader)
 		clientIP = netutil.ClientIP(r.RemoteAddr, forwarded, runtime.TrustedProxies)
 
+		if allowed, reason := route.Access.Allowed(clientIP); !allowed {
+			a.metrics.Blocked()
+			logSyntheticSecurity(runtime, requestID, clientIP, route, r, "access_block", 20, reason)
+			writeJSON(capture, http.StatusForbidden, map[string]any{"error": reason, "request_id": requestID})
+			return
+		}
+		if match, found := runtime.Reputation.Lookup(clientIP); found {
+			action := "reputation_monitor"
+			if match.Mode == "block" {
+				action = "reputation_block"
+			}
+			logSyntheticSecurity(runtime, requestID, clientIP, route, r, action, 10, match.Reason+" ("+match.Prefix+")")
+			if match.Mode == "block" {
+				a.metrics.Blocked()
+				writeJSON(capture, http.StatusForbidden, map[string]any{"error": "client IP blocked by reputation policy", "request_id": requestID})
+				return
+			}
+		}
+
 		if !isHTTPS && runtime.Config.HTTP.RedirectToHTTPS {
 			http.Redirect(capture, r, redirectURL(runtime, r), http.StatusPermanentRedirect)
 			return
 		}
 
-		if runtime.Limiter != nil && !runtime.Limiter.Allow(route.VirtualHost.Name+"|"+clientIP) {
+		if route.Limiter != nil && !route.Limiter.Allow(route.VirtualHost.Name+"|"+clientIP) {
 			a.metrics.RateLimited()
 			capture.Header().Set("Retry-After", "1")
 			logSyntheticSecurity(runtime, requestID, clientIP, route, r, "rate_limit", 0, "request rate exceeded")
 			writeJSON(capture, http.StatusTooManyRequests, map[string]any{"error": "rate limit exceeded", "request_id": requestID})
 			return
 		}
-
-		body, err := inspectionBody(r, runtime.Config.Security.MaxBodyBytes)
-		if err != nil {
-			if errors.Is(err, errUnsupportedContentEncoding) {
+		if botDecision := route.Bot.Inspect(clientIP, r.UserAgent()); botDecision.Matched {
+			action := "bot_monitor"
+			if botDecision.Blocked {
+				action = "bot_block"
+			}
+			logSyntheticSecurity(runtime, requestID, clientIP, route, r, action, 5, botDecision.Reason)
+			if botDecision.Blocked {
 				a.metrics.Blocked()
-				logSyntheticSecurity(runtime, requestID, clientIP, route, r, "block", 10, err.Error())
-				writeJSON(capture, http.StatusUnsupportedMediaType, map[string]any{"error": err.Error(), "request_id": requestID})
+				status := http.StatusForbidden
+				if botDecision.Kind == "rate" {
+					status = http.StatusTooManyRequests
+					capture.Header().Set("Retry-After", "1")
+				}
+				writeJSON(capture, status, map[string]any{"error": "request blocked by bot policy", "request_id": requestID})
 				return
 			}
-			if errors.Is(err, errBodyTooLarge) {
-				a.metrics.BodyTooLarge()
-				logSyntheticSecurity(runtime, requestID, clientIP, route, r, "block", 20, "request body exceeds inspection limit")
-				writeJSON(capture, http.StatusRequestEntityTooLarge, map[string]any{"error": "request body too large", "request_id": requestID})
-				return
-			}
-			writeJSON(capture, http.StatusBadRequest, map[string]any{"error": "unable to inspect request body", "request_id": requestID})
+		}
+
+		switch route.VirtualHost.Action {
+		case "redirect":
+			http.Redirect(capture, r, routeRedirectURL(route, r), route.VirtualHost.Redirect.Status)
+			return
+		case "discard":
+			writeJSON(capture, route.VirtualHost.DiscardStatus, map[string]any{"error": "virtual service discarded request", "request_id": requestID})
 			return
 		}
 
-		decision := runtime.Engine.Inspect(waf.RequestData{Request: r, Body: body})
+		var decision waf.Decision
+		if route.Engine != nil {
+			body, err := inspectionBody(r, route.MaxBody)
+			if err != nil {
+				if errors.Is(err, errUnsupportedContentEncoding) {
+					a.metrics.Blocked()
+					logSyntheticSecurity(runtime, requestID, clientIP, route, r, "block", 10, err.Error())
+					writeJSON(capture, http.StatusUnsupportedMediaType, map[string]any{"error": err.Error(), "request_id": requestID})
+					return
+				}
+				if errors.Is(err, errBodyTooLarge) {
+					a.metrics.BodyTooLarge()
+					logSyntheticSecurity(runtime, requestID, clientIP, route, r, "block", 20, "request body exceeds inspection limit")
+					writeJSON(capture, http.StatusRequestEntityTooLarge, map[string]any{"error": "request body too large", "request_id": requestID})
+					return
+				}
+				writeJSON(capture, http.StatusBadRequest, map[string]any{"error": "unable to inspect request body", "request_id": requestID})
+				return
+			}
+			decision, err = inspectRoute(route, r, body)
+			if err != nil {
+				logSyntheticSecurity(runtime, requestID, clientIP, route, r, "waf_error", 0, err.Error())
+				if route.WAFFailMode != "open" {
+					a.metrics.Blocked()
+					writeJSON(capture, http.StatusServiceUnavailable, map[string]any{"error": "WAF inspection unavailable", "request_id": requestID})
+					return
+				}
+			}
+		}
 		if len(decision.Matches) > 0 {
 			action := "detect"
 			if decision.Blocked {
@@ -332,7 +390,11 @@ func (a *App) publicHandler(isHTTPS bool) http.Handler {
 			return
 		}
 
-		route.Backend.ServeHTTP(capture, r, clientIP)
+		if route.Backend == nil {
+			writeJSON(capture, http.StatusServiceUnavailable, map[string]any{"error": "virtual service backend unavailable", "request_id": requestID})
+			return
+		}
+		selectedUpstream = route.Backend.ServeHTTP(capture, r, clientIP)
 	})
 }
 
@@ -361,11 +423,16 @@ func (a *App) adminHandler() http.Handler {
 			return
 		}
 		runtime := a.current.Load()
+		reputationEntries := 0
+		if runtime.Reputation != nil {
+			reputationEntries = runtime.Reputation.Count()
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"name": "CherryWAF", "build": a.build, "started_at": a.startedAt,
 			"uptime_seconds": int64(time.Since(a.startedAt).Seconds()),
 			"loaded_at":      runtime.LoadedAt, "mode": runtime.Engine.Mode(), "rule_count": runtime.Engine.RuleCount(),
 			"domains": runtime.Config.DomainNames(), "certificates": runtime.CertificatesInfo(), "metrics": a.metrics.Snapshot(),
+			"routes": runtime.RouteStatuses(), "reputation_entries": reputationEntries,
 			"recent_security_events": recentSecurityEvents(runtime, 200),
 		})
 	})
@@ -427,6 +494,35 @@ func redirectURL(runtime *core.Runtime, r *http.Request) string {
 		host = net.JoinHostPort(host, httpsPort)
 	}
 	return "https://" + host + r.URL.RequestURI()
+}
+
+func routeRedirectURL(route *core.Route, r *http.Request) string {
+	target := strings.NewReplacer(
+		"{host}", r.Host,
+		"{request_uri}", r.URL.RequestURI(),
+		"{path}", r.URL.EscapedPath(),
+		"{query}", r.URL.RawQuery,
+	).Replace(route.VirtualHost.Redirect.URL)
+	if strings.HasPrefix(target, "/") {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		return scheme + "://" + r.Host + target
+	}
+	return target
+}
+
+func inspectRoute(route *core.Route, r *http.Request, body []byte) (decision waf.Decision, err error) {
+	if route == nil || route.Engine == nil {
+		return waf.Decision{}, nil
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("WAF engine panic: %v", recovered)
+		}
+	}()
+	return route.Engine.Inspect(waf.RequestData{Request: r, Body: body}), nil
 }
 
 func logSyntheticSecurity(runtime *core.Runtime, requestID, clientIP string, route *core.Route, r *http.Request, action string, score int, reason string) {

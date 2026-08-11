@@ -1,0 +1,276 @@
+{
+  "version": 1,
+  "http": {
+    "enabled": true,
+    "listen": "127.0.0.1:8080",
+    "redirect_to_https": false
+  },
+  "https": {
+    "enabled": false,
+    "listen": "127.0.0.1:8443",
+    "min_tls_version": "1.2"
+  },
+  "admin": {
+    "enabled": true,
+    "listen": "127.0.0.1:9090",
+    "token_env": "CHERRYWAF_ADMIN_TOKEN",
+    "allow_public": false
+  },
+  "security": {
+    "mode": "detect",
+    "block_threshold": 10,
+    "max_body_bytes": 2097152,
+    "max_header_bytes": 1048576,
+    "trusted_proxies": [],
+    "forwarded_for_header": "X-Forwarded-For",
+    "rate_limit": {
+      "enabled": true,
+      "requests_per_second": 100,
+      "burst": 250,
+      "entry_ttl_seconds": 600
+    },
+    "reputation": {
+      "enabled": true,
+      "mode": "monitor",
+      "entries": [
+        "203.0.113.0/24 synthetic scanner range",
+        "2001:db8:bad::/48 synthetic IPv6 feed"
+      ],
+      "files": []
+    }
+  },
+  "rules": {
+    "builtins": true,
+    "files": []
+  },
+  "logging": {
+    "access_file": "-",
+    "security_file": "-"
+  },
+  "server_pools": [
+    {
+      "name": "web-primary",
+      "enabled": true,
+      "algorithm": "weighted_round_robin",
+      "failure_mode": "reject",
+      "members": [
+        {
+          "id": "web-01",
+          "url": "http://127.0.0.1:9001",
+          "enabled": true,
+          "weight": 3,
+          "priority": 100,
+          "backup": false,
+          "origin_tls": {
+            "server_name": "",
+            "ca_file": "",
+            "insecure_skip_verify": false
+          }
+        },
+        {
+          "id": "web-02",
+          "url": "http://127.0.0.1:9002",
+          "enabled": true,
+          "weight": 1,
+          "priority": 100,
+          "backup": false,
+          "origin_tls": {
+            "server_name": "",
+            "ca_file": "",
+            "insecure_skip_verify": false
+          }
+        },
+        {
+          "id": "web-dr",
+          "url": "http://127.0.0.1:9010",
+          "enabled": true,
+          "weight": 1,
+          "priority": 200,
+          "backup": true,
+          "origin_tls": {
+            "server_name": "",
+            "ca_file": "",
+            "insecure_skip_verify": false
+          }
+        }
+      ],
+      "health_check": {
+        "enabled": true,
+        "type": "http",
+        "interval_seconds": 10,
+        "timeout_seconds": 3,
+        "healthy_threshold": 2,
+        "unhealthy_threshold": 3,
+        "method": "GET",
+        "path": "/healthz",
+        "host": "app.example.test",
+        "expected_status_min": 200,
+        "expected_status_max": 399
+      }
+    },
+    {
+      "name": "api-primary",
+      "enabled": true,
+      "algorithm": "least_connections",
+      "failure_mode": "last_resort",
+      "members": [
+        {
+          "id": "api-01",
+          "url": "http://127.0.0.1:9101",
+          "enabled": true,
+          "weight": 1,
+          "priority": 100,
+          "backup": false,
+          "origin_tls": {
+            "server_name": "",
+            "ca_file": "",
+            "insecure_skip_verify": false
+          }
+        }
+      ],
+      "health_check": {
+        "enabled": true,
+        "type": "tcp",
+        "interval_seconds": 10,
+        "timeout_seconds": 3,
+        "healthy_threshold": 2,
+        "unhealthy_threshold": 3,
+        "method": "GET",
+        "path": "/",
+        "host": "",
+        "expected_status_min": 200,
+        "expected_status_max": 399
+      }
+    }
+  ],
+  "virtual_hosts": [
+    {
+      "name": "app-vs",
+      "enabled": true,
+      "domains": [
+        "app.example.test"
+      ],
+      "action": "group",
+      "upstream": "",
+      "server_pool": "web-primary",
+      "redirect": {
+        "url": "",
+        "status": 302
+      },
+      "discard_status": 403,
+      "preserve_host": true,
+      "frontend_tls": {
+        "certificate_file": "",
+        "private_key_file": ""
+      },
+      "origin_tls": {
+        "server_name": "",
+        "ca_file": "",
+        "insecure_skip_verify": false
+      },
+      "persistence": {
+        "mode": "cookie",
+        "cookie_name": "CWAF_ROUTE",
+        "ttl_seconds": 3600
+      },
+      "waf_policy": {
+        "mode": "blocking",
+        "block_threshold": 12,
+        "max_body_bytes": 4194304,
+        "builtins": true,
+        "rule_files": [],
+        "rate_limit": {
+          "enabled": true,
+          "requests_per_second": 75,
+          "burst": 150,
+          "entry_ttl_seconds": 600
+        },
+        "fail_mode": "closed",
+        "allow_cidrs": [],
+        "deny_cidrs": [
+          "198.51.100.66"
+        ]
+      },
+      "bot_policy": {
+        "enabled": true,
+        "mode": "monitor",
+        "requests_per_minute": 600,
+        "burst": 120,
+        "bad_user_agents": [
+          "(?i)\\b(?:sqlmap|nikto|nuclei|masscan)\\b"
+        ],
+        "allow_user_agents": []
+      },
+      "content_routes": [
+        {
+          "name": "api-paths",
+          "enabled": true,
+          "pool": "api-primary",
+          "methods": [],
+          "path_prefix": "/api/",
+          "path_pattern": "",
+          "header_name": "",
+          "header_pattern": "",
+          "query_name": "",
+          "query_pattern": ""
+        }
+      ],
+      "request_headers": {
+        "X-CherryWAF-Service": "app-vs"
+      },
+      "response_headers": {
+        "X-Content-Type-Options": "nosniff"
+      }
+    },
+    {
+      "name": "legacy-redirect",
+      "enabled": true,
+      "domains": [
+        "old.example.test"
+      ],
+      "action": "redirect",
+      "upstream": "",
+      "server_pool": "",
+      "redirect": {
+        "url": "https://app.example.test{request_uri}",
+        "status": 308
+      },
+      "discard_status": 403,
+      "preserve_host": false,
+      "frontend_tls": {
+        "certificate_file": "",
+        "private_key_file": ""
+      },
+      "origin_tls": {
+        "server_name": "",
+        "ca_file": "",
+        "insecure_skip_verify": false
+      },
+      "persistence": {
+        "mode": "none",
+        "cookie_name": "CWAF_ROUTE",
+        "ttl_seconds": 3600
+      },
+      "waf_policy": {
+        "mode": "disabled",
+        "block_threshold": 0,
+        "max_body_bytes": 0,
+        "rule_files": [],
+        "fail_mode": "closed",
+        "allow_cidrs": [],
+        "deny_cidrs": []
+      },
+      "bot_policy": {
+        "enabled": false,
+        "mode": "monitor",
+        "requests_per_minute": 300,
+        "burst": 60,
+        "bad_user_agents": [],
+        "allow_user_agents": []
+      },
+      "content_routes": [],
+      "request_headers": {},
+      "response_headers": {}
+    }
+  ]
+}

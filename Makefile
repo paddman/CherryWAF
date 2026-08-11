@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 GO ?= go
-VERSION ?= 0.2.0-dev
+VERSION ?= 0.3.0-dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)
@@ -20,6 +20,7 @@ vet:
 
 webcheck:
 	node --check internal/control/web/app.js
+	node --check internal/control/web/adc.js
 	node --check internal/control/web/threatmap-data.js
 	node --check internal/control/web/threatmap-core.js
 	node --check internal/control/web/threatmap-view.js
