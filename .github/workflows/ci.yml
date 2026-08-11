@@ -29,7 +29,7 @@ jobs:
       - name: Tests with race detector
         run: go test -race -coverprofile=coverage.out ./...
       - name: Embedded web application syntax
-        run: node --check internal/control/web/app.js
+        run: make webcheck
       - name: Build
         run: make build
       - name: Validate examples

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" role="img" aria-label="Stylized world map">
+<defs><linearGradient id="land" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#17355f"/><stop offset="1" stop-color="#102442"/></linearGradient><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="#315985" stroke-opacity=".2"/></pattern></defs>
+<rect width="1000" height="500" rx="22" fill="#071124"/><rect width="1000" height="500" rx="22" fill="url(#grid)"/>
+<g fill="url(#land)" stroke="#2f5d91" stroke-width="2" stroke-linejoin="round">
+<path d="M38 102 90 63l90-25 75 17 45 48-28 34-51 1-35 31-18 56-55 17-48-35-17-52-36-18Z"/>
+<path d="m225 238 48 15 36 45-2 73-38 92-31-36-20-76-25-45Z"/>
+<path d="m398 93 71-38 91 5 34 27-18 30-55 4-29 34-63-3-43-31Z"/>
+<path d="m455 169 55 1 55 43-2 86-38 92-56-13-33-77 9-70-24-32Z"/>
+<path d="m577 91 92-42 151 8 99 51-17 48-87 8-43 42-57-15-61-45-72 7-29-31Z"/>
+<path d="m777 178 46 16 24 44-21 54-33-19-20-54Z"/>
+<path d="m808 350 74-27 70 33-13 49-74 34-62-34Z"/>
+<path d="m920 178 21 8 10 36-19 9-18-27Z"/>
+<path d="M65 463h879l29 20H26Z" opacity=".75"/>
+</g>
+<g fill="#4d8dca" opacity=".7"><circle cx="350" cy="112" r="3"/><circle cx="626" cy="83" r="3"/><circle cx="741" cy="102" r="3"/><circle cx="879" cy="252" r="3"/></g>
+</svg>
