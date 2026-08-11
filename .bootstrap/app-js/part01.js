@@ -43,7 +43,7 @@ function renderShell() {
     </aside>
     <main class="main"><header class="topbar"><div class="topbar-title"><button class="btn icon-btn mobile-menu" id="menu-toggle">☰</button><strong id="top-title">Overview</strong><span>Secure appliance management</span></div><div class="status-pill"><span class="status-dot" id="runtime-dot"></span><span id="runtime-label">Checking WAF core</span></div></header><section class="content" id="content"></section></main>
   </div>`;
-  $$('[data-route]').forEach((button) => button.addEventListener("click", () => { location.hash = button.dataset.route; $("#sidebar").classList.remove("open"); }));
+  $$("[data-route]").forEach((button) => button.addEventListener("click", () => { location.hash = button.dataset.route; $("#sidebar").classList.remove("open"); }));
   $("#menu-toggle").onclick = () => $("#sidebar").classList.toggle("open");
   $("#refresh-page").onclick = () => navigate(state.route, true);
   $("#logout").onclick = async () => { try { await api("/api/v1/auth/logout", { method: "POST" }); } catch (_) {} renderLogin(); };
